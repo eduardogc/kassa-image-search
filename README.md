@@ -6,7 +6,7 @@ A full-stack furniture image search application. Upload a furniture image, and t
 
 ### Prerequisites
 - Node.js ≥ 18
-- An [OpenRouter](https://openrouter.ai) API key (free tier works)
+- An [OpenRouter](https://openrouter.ai) API key (google/gemini-2.5-flash-lite works)
 
 ### Setup
 
