@@ -1,34 +1,33 @@
 # Kassa Image Search
 
-A full-stack furniture image search application. Upload a furniture image, and the system returns ranked matches from a 2,500+ product catalog. Optionally refine results with a natural-language query.
+Upload a furniture image → AI extracts structured attributes → MongoDB queries find matching products → results ranked by 5 configurable signals. Optionally refine with a natural-language query like "white, under $500".
 
 ## Quick Start
 
-### Prerequisites
-- Node.js ≥ 18
-- An [OpenRouter](https://openrouter.ai) API key (google/gemini-2.5-flash-lite works)
-
-### Setup
-
 ```bash
-# Install all dependencies
+# Prerequisites: Node.js ≥ 18, an OpenRouter API key
+
+# 1. Copy and configure environment variables
+cp server/.env.example server/.env    # then edit MONGO_URI
+cp client/.env.example client/.env    # defaults work for local dev
+
+# 2. Install all dependencies
 npm run install:all
 
-# Start both server and client
+# 3. Start both server and client
 npm run dev
 ```
 
-Or start individually:
+Open http://localhost:5173 → Admin (`/admin`) → paste your API key → Home (`/`) → upload & search.
 
-```bash
-# Server (port 3001)
-cd server && npm run dev
+### Environment Variables
 
-# Client (port 5173)
-cd client && npm run dev
-```
+| File | Variable | Required | Default |
+|------|----------|----------|---------|
+| `server/.env` | `MONGO_URI` | Yes | — |
+| `client/.env` | `VITE_API_BASE` | No | `http://127.0.0.1:3001` |
 
-Open http://localhost:5173, enter your OpenRouter API key, upload a furniture image, and search.
+> Both directories include a `.env.example` file. Copy it to `.env` and fill in your values.
 
 ---
 
@@ -36,93 +35,145 @@ Open http://localhost:5173, enter your OpenRouter API key, upload a furniture im
 
 ```
 Client (React + Vite + TS)  ──►  Server (Fastify + TS)  ──►  MongoDB (read-only)
-                                        │
-                                   OpenRouter API
-                                   (vision model)
+         │                              │
+    Zustand store                 OpenRouter API
+    React Query hooks            (vision model)
 ```
 
-### Search Pipeline (Two-Phase)
-
-**Phase 1 — AI Image Analysis:**
-The uploaded image is sent to a vision model (default: Gemini 2.0 Flash via OpenRouter) which extracts structured attributes:
-- **Category** and **Type** — mapped to exact values in the catalog (15 categories, 63 types)
-- **Style**, **material**, **color** — descriptive attributes
-- **Search terms** — natural-language phrases for text search
-
-**Phase 2 — Multi-Signal Retrieval & Ranking:**
-Three parallel MongoDB queries using existing indexes:
-1. **Text search** — `$text` index on `title` (weight 2) + `description` (weight 1)
-2. **Category + Type filter** — compound index (`category`, `type`, `price`)
-3. **Category-only fallback** — broader results when type is too narrow
-
-Results are deduplicated, then scored with configurable weights:
-
-```
-score = w_text × textScore + w_category × categoryMatch + w_type × typeMatch + w_style × styleMatch
-```
-
-### Key Design Choices
-
-| Decision | Rationale |
-|---|---|
-| **Structured extraction → DB queries** (vs. embedding-based search) | Works with the existing text + compound indexes. No need to create/store embeddings for 2,500 products. Scales well — adding products doesn't require re-indexing vectors. |
-| **Three parallel query strategies** | Text search captures semantic relevance; category/type filter captures exact structural match; category fallback ensures recall. Merging provides both precision and coverage. |
-| **Admin-tunable weights** | Enables rapid iteration on ranking quality without code changes. Different use cases can prioritize different signals. |
-| **OpenRouter** | Supports many models on a single API. Free tier available. Model selectable from admin panel. |
-| **Heuristic style matching** | Simple substring check of AI-detected style/material/color against product text. Lightweight, no extra infrastructure needed. |
-
-### Tradeoffs
-
-- **No vector/embedding search** — the current approach relies on text indexes and structured attributes. For a larger catalog (10K+), adding vector search (MongoDB Atlas Search or a dedicated vector DB) would improve semantic matching.
-- **No product images** — the catalog has no image URLs, so matching is purely text-based. Image-to-image similarity would dramatically improve quality if product images were available.
-- **In-memory config** — config resets on server restart. Intentional for simplicity (no persistent state to manage), but a production system would persist to a file or database.
+### Client Stack
+- **React + TypeScript + Vite** — SPA with 3 pages (Home, Results, Admin)
+- **Emotion CSS** — styles extracted into `*.styles.tsx` files per component
+- **Zustand** — client-side state (API key, search results, query)
+- **React Query** — `useConfig`, `useSearch`, `useRefineSearch` hooks for all API calls
+- **6 components**: Navbar, ImageUpload, ProductCard, AnalysisSummary, WeightSlider, ParamField
 
 ---
 
-## Admin Panel
+## Search Pipeline
 
-Navigate to `/admin` to configure:
+### Phase 1 — AI Analysis
 
-- **Ranking Weights** — sliders for text relevance, category match, type match, and style match
-- **Max Results** — number of products returned per search
-- **Min Score** — threshold below which products are filtered out
-- **AI Model** — OpenRouter model used for image analysis
+The uploaded image is sent to a vision model (default: Gemini 2.5 Flash Lite via OpenRouter) which extracts:
 
-Changes take effect on the next search request.
+| Field | Source | Example |
+|-------|--------|---------|
+| Category, Type | Always from image | "Coffee Tables", "Round" |
+| Style, Material, Color | Image **unless user overrides** | "Modern", "Wood", "White" |
+| Max Price | User query only | "under $500" → `500` |
+| Search Terms | Combined image + preferences | ["white round coffee table"] |
+
+**Selective override rule:** When the user mentions a specific attribute (e.g. "white"), that attribute uses the user's value. Everything the user did **not** mention is derived from the image normally. This means:
+- User says "white" → color = white (override), material = from image, style = from image
+- User says nothing → all attributes from image
+
+### Phase 2 — Retrieval
+
+Three parallel MongoDB queries (all filtered by `maxPrice` when present):
+
+1. **Text search** — `$text` index on title (weight 2) + description (weight 1)
+2. **Category + Type** — compound index exact match
+3. **Category only** — broader fallback for recall
+
+All queries use explicit field projection (`PRODUCT_FIELDS`) to transfer only the 9 fields used by the ranker.
+
+### Phase 3 — Ranking
+
+Results are deduplicated, then scored with **5 configurable signals**:
+
+```
+score = w_text × textScore
+      + w_category × categoryMatch
+      + w_type × typeMatch
+      + w_style × styleMatch
+      + w_query × queryMatch
+```
+
+| Signal | Default Weight | What it measures |
+|--------|---------------|------------------|
+| Category | 0.30 | Exact category match from AI |
+| Query | 0.20 | User's explicit text terms found in product title/description + price compliance |
+| Type | 0.20 | Exact type match from AI |
+| Text | 0.15 | MongoDB keyword relevance score |
+| Style | 0.15 | AI-detected attributes found in product text |
+
+The `queryMatch` signal is **independent of the AI** — it tokenizes the raw user query (stripping stop words and price patterns) and checks each product directly. This ensures user preferences are respected even if the AI misinterprets them.
 
 ---
 
-## Evaluation Approach
+## Performance
 
-### Score Transparency
-Every result shows its **composite score** and individual **signal breakdowns** (text, category, type, style bars). This makes it easy to inspect *why* a result was ranked where it is.
+| Optimization | Impact |
+|-------------|--------|
+| **Shared OpenAI client** | Reused across requests. Recreated only when API key changes. |
+| **Cached system prompt** | Built once from catalog metadata, not per-request. |
+| **Analysis cache (LRU, 128 entries)** | Identical image + query returns instantly, zero API calls. |
+| **`max_tokens` 200** (was 500) | JSON response is ≤150 tokens. ~40% inference billing reduction. |
+| **MongoDB field projection** | Only 9 fields transferred per document, not the full document. |
+| **Dynamic catalog metadata** | Categories and types loaded at startup via `DISTINCT_SCAN`, not hardcoded. |
 
-### Admin Tuning as Evaluation
-The admin panel allows rapid A/B testing of different weight configurations. Upload the same image, change weights, observe how results reorder. This is the primary UX for evaluating retrieval quality.
+---
 
-### Evaluation Protocol
-To evaluate match quality:
-1. Upload images of distinct furniture types (sofa, dining table, desk lamp, bookshelf)
-2. Verify top-3 results are in the correct **category**
-3. Verify top-1 result has the correct **type**
-4. Add a refining query (e.g., "wooden", "under $500") and verify filtering
-5. Check AI **confidence** score — low confidence suggests a non-furniture or ambiguous image
+## Admin Panel (`/admin`)
 
-### Metrics (Manual)
-For a formal evaluation, prepare a test set of N images with known categories/types and measure:
-- **Category accuracy@1** — does the top result's category match?
-- **Type accuracy@3** — is the correct type in the top 3?
-- **MRR (Mean Reciprocal Rank)** — average of 1/rank of the first correct result
+- **Ranking weight sliders** — text, category, type, style, **query match**
+- **Max results / Min score** — control result count and quality threshold
+- **AI model** — select any OpenRouter model
+- **API key** — stored in browser memory only (Zustand), never sent to server storage
+
+Changes take effect on the next search.
+
+---
+
+## Evaluation
+
+Every result card shows its **score** and **signal breakdown bars** (text, category, type, style, query), making it transparent *why* each result was ranked where it is.
+
+**Manual protocol:**
+1. Upload images of distinct types (sofa, desk, lamp, bookshelf)
+2. Verify top-3 are in the correct category
+3. Add a refining query ("white", "under $500") and verify filtering
+4. Check AI confidence — low values suggest ambiguous input
+
+---
+
+## Design Decisions
+
+| Decision | Why |
+|----------|-----|
+| **Selective override (not blanket)** | User says "white" → only color overrides. Material, style, category all still come from the image. Ensures the AI still contributes value for attributes the user didn't specify. |
+| **queryMatch as independent signal** | The ranker checks user terms directly against products, independent of AI output. "White" boosts white products even if the AI returned "black". |
+| **Structured extraction over embeddings** | Works with existing MongoDB indexes. No vectors to compute or store for 2,500 products. Adding products doesn't require re-indexing. |
+| **Three parallel queries** | Text for semantic relevance + category/type for structural precision + fallback for recall. |
+| **Dynamic catalog metadata** | Categories/types loaded from MongoDB at startup. Adding a new category to the DB automatically updates the AI prompt. |
+| **In-memory analysis cache** | Avoids redundant API calls for repeated searches. LRU eviction keeps memory bounded. |
+
+## Tradeoffs
+
+- **No vector search** — for 10K+ catalogs, embedding-based search would improve semantic matching.
+- **No product images** — matching is text-based only. Image-to-image similarity would help if product images existed.
+- **In-memory config** — resets on restart. Intentional for simplicity.
+
+---
+
+## Testing
+
+```bash
+# Server tests (Vitest)
+cd server && npm test
+
+# Client tests (Vitest + React Testing Library)
+cd client && npm test
+```
+
+- **Server** (6 tests): AI service, ranker, catalog, config routes, search route
+- **Client** (30 tests): Navbar, ImageUpload, ProductCard, AnalysisSummary, WeightSlider, ParamField, HomePage, ResultsPage, API service
 
 ---
 
 ## Future Enhancements
 
-1. **Vector/embedding search** — precompute text embeddings for all products, use cosine similarity for semantic matching
-2. **Product images** — if available, enable image-to-image similarity search
-3. **Price and dimension filters** — expose sliders for price range, min/max dimensions
-4. **Search history and feedback** — persist search sessions and thumbs-up/down for offline evaluation
-5. **Caching** — cache AI analysis for identical images, cache MongoDB results for repeated queries
-6. **Pagination** — infinite scroll or load-more for large result sets
-7. **Multi-image search** — search for a room setup with multiple furniture items
-8. **Batch evaluation endpoint** — upload a test set, run all searches, return accuracy metrics automatically
+1. Vector/embedding search for larger catalogs
+2. Image-to-image similarity (if product images become available)
+3. Dimension filters (width, height, depth)
+4. Search history with user feedback
+5. Pagination / infinite scroll
