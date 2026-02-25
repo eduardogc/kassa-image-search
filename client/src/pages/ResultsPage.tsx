@@ -125,12 +125,12 @@ function AnalysisSummary({ analysis, meta }: { analysis: ImageAnalysis; meta: Se
         <span className={s.analysisValue}>{analysis.category}</span>
         <span className={s.analysisLabel}>Type</span>
         <span className={s.analysisValue}>{analysis.type}</span>
-        <span className={s.analysisLabel}>Style</span>
-        <span className={s.analysisValue}>{analysis.style}</span>
-        <span className={s.analysisLabel}>Material</span>
-        <span className={s.analysisValue}>{analysis.material}</span>
-        <span className={s.analysisLabel}>Color</span>
-        <span className={s.analysisValue}>{analysis.color}</span>
+        {Object.entries(analysis.attributes || {}).map(([key, value]) => (
+          <span key={key}>
+            <span className={s.analysisLabel}>{key.charAt(0).toUpperCase() + key.slice(1)}</span>
+            <span className={s.analysisValue}>{value}</span>
+          </span>
+        ))}
         <span className={s.analysisLabel}>Confidence</span>
         <span className={s.analysisValue}>{(analysis.confidence * 100).toFixed(0)}%</span>
       </div>

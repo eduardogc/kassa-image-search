@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { getConfig, updateConfig } from '../services/api';
 import type { RankingConfig } from '../types';
 import { useStore } from '../store';
+import { WeightSlider } from '../components/WeightSlider';
+import { ParamField } from '../components/ParamField';
 import * as s from './AdminPage.styles';
 
 export function AdminPage() {
@@ -91,63 +93,45 @@ export function AdminPage() {
                 <section className={s.configSection}>
                     <h2>Search Parameters</h2>
 
-                    <div className={s.paramRow}>
-                        <div className={s.paramInfo}>
-                            <label>Max Results</label>
-                            <span className={s.paramDesc}>Maximum number of products returned per search</span>
-                        </div>
-                        <input
-                            type="number"
-                            className={s.paramInput}
-                            value={config.maxResults}
-                            min={1}
-                            max={100}
-                            onChange={(e) => setConfig({ ...config, maxResults: parseInt(e.target.value) || 20 })}
-                        />
-                    </div>
+                    <ParamField
+                        label="Max Results"
+                        desc="Maximum number of products returned per search"
+                        type="number"
+                        value={config.maxResults}
+                        min={1}
+                        max={100}
+                        onChange={(v) => setConfig({ ...config, maxResults: parseInt(String(v)) || 20 })}
+                    />
 
-                    <div className={s.paramRow}>
-                        <div className={s.paramInfo}>
-                            <label>Min Score</label>
-                            <span className={s.paramDesc}>Products below this score threshold are filtered out</span>
-                        </div>
-                        <input
-                            type="number"
-                            className={s.paramInput}
-                            value={config.minScore}
-                            min={0}
-                            max={1}
-                            step={0.01}
-                            onChange={(e) => setConfig({ ...config, minScore: parseFloat(e.target.value) || 0 })}
-                        />
-                    </div>
+                    <ParamField
+                        label="Min Score"
+                        desc="Products below this score threshold are filtered out"
+                        type="number"
+                        value={config.minScore}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        onChange={(v) => setConfig({ ...config, minScore: parseFloat(String(v)) || 0 })}
+                    />
 
-                    <div className={s.paramRow}>
-                        <div className={s.paramInfo}>
-                            <label>AI Model</label>
-                            <span className={s.paramDesc}>OpenRouter model for image analysis</span>
-                        </div>
-                        <input
-                            type="text"
-                            className={s.paramInputWide}
-                            value={config.model}
-                            onChange={(e) => setConfig({ ...config, model: e.target.value })}
-                        />
-                    </div>
+                    <ParamField
+                        label="AI Model"
+                        desc="OpenRouter model for image analysis"
+                        type="text"
+                        value={config.model}
+                        wide
+                        onChange={(v) => setConfig({ ...config, model: String(v) })}
+                    />
 
-                    <div className={s.paramRow}>
-                        <div className={s.paramInfo}>
-                            <label>OpenRouter API Key</label>
-                            <span className={s.paramDesc}>Required to use the AI model (stored in browser memory only)</span>
-                        </div>
-                        <input
-                            type="password"
-                            className={s.paramInputWide}
-                            placeholder="sk-or-..."
-                            value={openrouterApiKey}
-                            onChange={(e) => setOpenrouterApiKey(e.target.value)}
-                        />
-                    </div>
+                    <ParamField
+                        label="OpenRouter API Key"
+                        desc="Required to use the AI model (stored in browser memory only)"
+                        type="password"
+                        value={openrouterApiKey}
+                        placeholder="sk-or-..."
+                        wide
+                        onChange={(v) => setOpenrouterApiKey(String(v))}
+                    />
                 </section>
 
                 <div className={s.actions}>
@@ -157,31 +141,6 @@ export function AdminPage() {
                     {error && <span className={s.errorText}>{error}</span>}
                 </div>
             </div>
-        </div>
-    );
-}
-
-function WeightSlider({
-    label, desc, value, onChange,
-}: {
-    label: string; desc: string; value: number; onChange: (v: number) => void;
-}) {
-    return (
-        <div className={s.weightSlider}>
-            <div className={s.weightHeader}>
-                <span className={s.weightLabel}>{label}</span>
-                <span className={s.weightValue}>{value.toFixed(2)}</span>
-            </div>
-            <p className={s.weightDesc}>{desc}</p>
-            <input
-                type="range"
-                className={s.slider}
-                min={0}
-                max={1}
-                step={0.05}
-                value={value}
-                onChange={(e) => onChange(parseFloat(e.target.value))}
-            />
         </div>
     );
 }

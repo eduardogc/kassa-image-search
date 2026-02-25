@@ -4,6 +4,52 @@ All notable changes to the Kassa Image Search project are documented here. Each 
 
 ---
 
+## [1.2.0] — 2026-02-24
+
+### Scalability, Code Quality & Search Tuning
+
+#### Scalable AI Analysis Schema
+- **Refactored `ImageAnalysis` type** to a hybrid schema: `category` and `type` remain as typed fields (needed for index-based exact matching), while `style`, `material`, `color` and any future attributes moved to a flexible `attributes: Record<string, string>` map.
+  - *Motivation:* Adding a new attribute (e.g. `finish`, `pattern`) now requires only adding a string to `DEFAULT_ATTRIBUTE_KEYS` — the prompt, ranker, and frontend adapt automatically.
+  > **Prompt:** "How could we make ai.ts more scalable? What if we changed ImageAnalysis type?"
+- **Dynamic catalog metadata from MongoDB** — `getValidCategories()` and `getValidTypes()` load distinct values from the DB at startup via `DISTINCT_SCAN` (using the existing compound index), replacing hardcoded arrays.
+  - *Motivation:* If the catalog grows or categories change, no code changes are needed. The AI prompt is built dynamically with the real catalog values.
+- **AI prompt built dynamically** via `buildSystemPrompt()` — injects live categories, types, and attribute keys into the system prompt at request time.
+- **Ranker updated** — `computeStyleMatch()` now iterates `Object.values(analysis.attributes)` instead of hardcoded `style`/`material`/`color` fields.
+- **Frontend updated** — `AnalysisSummary` renders attributes dynamically with `Object.entries()`.
+
+#### Environment Variables
+- **`MONGO_URI`** moved from hardcoded string to `server/.env` (loaded via `dotenv`). Throws a clear error at `connectDB()` if missing.
+  - *Motivation:* Credentials should never be committed to source code.
+  > **Prompt:** "MONGO_URI should come from a .env (server), API_BASE should come from a .env too (client)."
+- **`VITE_API_BASE`** moved from hardcoded string to `client/.env` (exposed via `import.meta.env`).
+- Replaced `countDocuments()` with `estimatedDocumentCount()` to avoid a full collection scan on startup.
+
+#### Code Quality
+- **Removed all `.js` extensions** from TypeScript imports across 7 server files (18 imports total). The `tsconfig.json` already uses `"moduleResolution": "bundler"` which resolves `.ts` files without explicit extensions.
+  > **Prompt:** "All these imports with .js at the end? That's very weird. Change to .ts."
+- **Added ESLint to the server** with `typescript-eslint` (matching the client setup). TSLint was deprecated in 2019 — `typescript-eslint` is the modern standard.
+- **Fixed all lint errors** — unused imports (`vi`, `mockedCatalog`), `prefer-const`, unused type imports.
+- **Extracted `ParamField` and `WeightSlider`** from inline definitions in `AdminPage.tsx` into standalone components in `components/` with their own styles files and exported prop interfaces.
+  > **Prompt:** "These repeated patterns can be components, right? ParamField, its types, and WeightSlider can go to the component folder and get their own tests."
+- **Added 10 new component tests** — `WeightSlider.test.tsx` (3 tests: rendering, attributes, onChange) and `ParamField.test.tsx` (7 tests: rendering, number/text/password types, placeholder, onChange with typing, wide prop). Total client tests: 7 → 17.
+
+#### Optimized Default Ranking Weights
+- **Retuned default weights** for better out-of-the-box search quality:
+  > **Prompt:** "Is this a recommended way for optimal search? Users that don't understand anything may rely on default configuration."
+
+  | Signal | Before | After | Rationale |
+  |--------|--------|-------|-----------|
+  | category | 0.30 | **0.35** | Most reliable structural signal — wrong category = bad result |
+  | text | 0.40 | **0.25** | Useful but noisy; keyword matches can be misleading |
+  | type | 0.20 | **0.25** | Important for precision within a category |
+  | style | 0.10 | **0.15** | Heuristic bonus for style/material/color matches |
+  | minScore | 0.05 | **0.10** | Filters truly irrelevant results; was too permissive |
+
+- **Default model** changed to `google/gemini-2.5-flash-lite` (vision-capable, cost-effective).
+
+---
+
 ## [1.1.0] — 2026-02-24
 
 ### UI Restructure & Client-Side API Key Management

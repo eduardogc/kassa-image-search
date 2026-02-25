@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { analyzeImage } from '../services/ai.js';
-import { textSearch, categoryTypeSearch, categorySearch } from '../services/catalog.js';
-import { rankResults } from '../services/ranker.js';
-import { getConfig } from '../config.js';
-import type { SearchResponse } from '../types.js';
+import { analyzeImage } from '../services/ai';
+import { textSearch, categoryTypeSearch, categorySearch } from '../services/catalog';
+import { rankResults } from '../services/ranker';
+import { getConfig } from '../config';
+import type { SearchResponse } from '../types';
 
 export async function searchRoutes(app: FastifyInstance): Promise<void> {
     app.post('/api/search', async (request, reply) => {

@@ -3,11 +3,9 @@
 export interface ImageAnalysis {
     category: string;
     type: string;
-    style: string;
-    material: string;
-    color: string;
     searchTerms: string[];
     confidence: number;
+    attributes: Record<string, string>;
 }
 
 export interface ScoreSignals {

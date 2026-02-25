@@ -1,18 +1,45 @@
 import { type Collection, type Db, MongoClient, type WithId, type Document } from 'mongodb';
-import type { Product, ImageAnalysis } from '../types.js';
-
-const MONGO_URI = 'mongodb+srv://catalog-readonly:vcRvxWHQSKUEwd7V@catalog.sontifs.mongodb.net/catalog';
+import type { Product } from '../types';
 
 let client: MongoClient;
 let db: Db;
 let products: Collection;
 
 export async function connectDB(): Promise<void> {
-    client = new MongoClient(MONGO_URI);
+    const mongoUri = process.env.MONGO_URI;
+    if (!mongoUri) {
+        throw new Error('MONGO_URI environment variable is required. Add it to server/.env');
+    }
+
+    client = new MongoClient(mongoUri);
     await client.connect();
     db = client.db('catalog');
     products = db.collection('products');
-    console.log(`Connected to MongoDB — ${await products.countDocuments()} products`);
+    // estimatedDocumentCount uses collection metadata — no collection scan
+    console.log(`Connected to MongoDB — ~${await products.estimatedDocumentCount()} products`);
+
+    // Pre-load catalog metadata for AI prompt construction
+    await refreshCatalogMeta();
+}
+
+// ── Cached catalog metadata (loaded once at startup) ──
+
+let cachedCategories: string[] = [];
+let cachedTypes: string[] = [];
+
+async function refreshCatalogMeta(): Promise<void> {
+    // distinct() uses the compound index {category, type, price} via DISTINCT_SCAN — not a full collection scan
+    cachedCategories = (await products.distinct('category')).sort();
+    cachedTypes = (await products.distinct('type')).sort();
+    console.log(`Catalog meta: ${cachedCategories.length} categories, ${cachedTypes.length} types`);
+}
+
+export function getValidCategories(): string[] {
+    return cachedCategories;
+}
+
+export function getValidTypes(): string[] {
+    return cachedTypes;
 }
 
 export async function disconnectDB(): Promise<void> {

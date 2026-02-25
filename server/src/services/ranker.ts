@@ -1,5 +1,5 @@
-import type { ImageAnalysis, ScoredProduct, ScoreSignals, RankingConfig } from '../types.js';
-import type { CatalogResult } from './catalog.js';
+import type { ImageAnalysis, ScoredProduct, ScoreSignals, RankingConfig } from '../types';
+import type { CatalogResult } from './catalog';
 
 /**
  * Merge results from multiple query strategies, deduplicate, score, and rank.
@@ -55,7 +55,7 @@ export function rankResults(
 }
 
 /**
- * Heuristic style match: checks if the AI-detected style/material/color
+ * Heuristic style match: checks if the AI-detected attributes
  * appear in the product title or description.
  */
 function computeStyleMatch(
@@ -63,7 +63,7 @@ function computeStyleMatch(
     analysis: ImageAnalysis,
 ): number {
     const text = `${product.title} ${product.description}`.toLowerCase();
-    const keywords = [analysis.style, analysis.material, analysis.color]
+    const keywords = Object.values(analysis.attributes)
         .filter(Boolean)
         .map((k) => k.toLowerCase());
 

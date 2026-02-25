@@ -1,16 +1,27 @@
 import OpenAI from 'openai';
-import { VALID_CATEGORIES, VALID_TYPES, type ImageAnalysis } from '../types.js';
-import { getConfig } from '../config.js';
+import type { ImageAnalysis } from '../types';
+import { DEFAULT_ATTRIBUTE_KEYS } from '../types';
+import { getConfig } from '../config';
+import { getValidCategories, getValidTypes } from './catalog';
 
-const SYSTEM_PROMPT = `You are a furniture identification expert. Analyze the provided image and extract structured attributes about the furniture item shown.
+/**
+ * Build the system prompt dynamically using categories/types from the catalog
+ * and the configurable attribute keys.
+ */
+function buildSystemPrompt(): string {
+    const categories = getValidCategories();
+    const types = getValidTypes();
+    const attrKeys = DEFAULT_ATTRIBUTE_KEYS;
+
+    return `You are a furniture identification expert. Analyze the provided image and extract structured attributes about the furniture item shown.
 
 You MUST respond with valid JSON only — no markdown, no explanation.
 
 Use EXACTLY one of these categories:
-${VALID_CATEGORIES.join(', ')}
+${categories.join(', ')}
 
 Use EXACTLY one of these types:
-${VALID_TYPES.join(', ')}
+${types.join(', ')}
 
 If the image does not show a recognizable furniture item, set confidence to 0 and use your best guess.
 
@@ -18,12 +29,11 @@ Response schema:
 {
   "category": string,     // one of the valid categories above
   "type": string,         // one of the valid types above
-  "style": string,        // e.g. "mid-century", "scandinavian", "industrial", "modern", "rustic"
-  "material": string,     // e.g. "wood", "metal", "leather", "fabric", "glass"
-  "color": string,        // primary color
+${attrKeys.map((k) => `  "${k}": string,`).join('\n')}
   "searchTerms": string[],// 2-4 descriptive search phrases for finding similar items
   "confidence": number    // 0-1, how confident you are this is a furniture item
 }`;
+}
 
 export async function analyzeImage(
     imageBase64: string,
@@ -45,7 +55,7 @@ export async function analyzeImage(
     const response = await client.chat.completions.create({
         model: config.model,
         messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'system', content: buildSystemPrompt() },
             {
                 role: 'user',
                 content: [
@@ -67,17 +77,36 @@ export async function analyzeImage(
     const jsonStr = raw.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
 
     try {
-        const parsed = JSON.parse(jsonStr) as ImageAnalysis;
+        const parsed = JSON.parse(jsonStr);
 
-        // Validate category/type against known values
-        if (!VALID_CATEGORIES.includes(parsed.category as typeof VALID_CATEGORIES[number])) {
-            parsed.confidence = Math.min(parsed.confidence, 0.5);
-        }
-        if (!VALID_TYPES.includes(parsed.type as typeof VALID_TYPES[number])) {
-            parsed.confidence = Math.min(parsed.confidence, 0.5);
+        // Extract core fields + collect remaining keys into `attributes`
+        const categories = getValidCategories();
+        const types = getValidTypes();
+
+        const attributes: Record<string, string> = {};
+        for (const key of DEFAULT_ATTRIBUTE_KEYS) {
+            if (parsed[key]) {
+                attributes[key] = String(parsed[key]);
+            }
         }
 
-        return parsed;
+        const result: ImageAnalysis = {
+            category: String(parsed.category ?? ''),
+            type: String(parsed.type ?? ''),
+            searchTerms: Array.isArray(parsed.searchTerms) ? parsed.searchTerms : [],
+            confidence: Number(parsed.confidence ?? 0),
+            attributes,
+        };
+
+        // Validate category/type against actual catalog values
+        if (!categories.includes(result.category)) {
+            result.confidence = Math.min(result.confidence, 0.5);
+        }
+        if (!types.includes(result.type)) {
+            result.confidence = Math.min(result.confidence, 0.5);
+        }
+
+        return result;
     } catch {
         throw new Error(`Failed to parse AI response: ${raw.slice(0, 200)}`);
     }

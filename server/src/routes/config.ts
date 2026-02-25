@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { getConfig, updateConfig } from '../config.js';
-import type { RankingConfig } from '../types.js';
+import { getConfig, updateConfig } from '../config';
+import type { RankingConfig } from '../types';
 
 export async function configRoutes(app: FastifyInstance): Promise<void> {
     app.get('/api/config', async (_request, reply) => {

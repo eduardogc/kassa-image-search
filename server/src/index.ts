@@ -1,9 +1,10 @@
+import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
-import { connectDB, disconnectDB } from './services/catalog.js';
-import { searchRoutes } from './routes/search.js';
-import { configRoutes } from './routes/config.js';
+import { connectDB, disconnectDB } from './services/catalog';
+import { searchRoutes } from './routes/search';
+import { configRoutes } from './routes/config';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
