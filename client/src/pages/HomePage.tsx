@@ -1,43 +1,31 @@
-import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { ImageUpload } from '../components/ImageUpload';
-import { searchByImage } from '../services/api';
+import { useSearch } from '../hooks/useSearch';
 import { useStore } from '../store';
 import * as s from './HomePage.styles';
 
 export function HomePage() {
-    const navigate = useNavigate();
-    const { openrouterApiKey, setSearchQuery, setSearchResult } = useStore();
+    const { openrouterApiKey } = useStore();
+    const { search, isSearching, error } = useSearch();
 
     const [file, setFile] = useState<File | null>(null);
-    const [query, setLocalQuery] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const [query, setQuery] = useState('');
+    const [validationError, setValidationError] = useState<string | null>(null);
 
-    const handleSearch = useCallback(async () => {
+    const handleSearch = () => {
         if (!openrouterApiKey) {
-            setError('Please configure your OpenRouter API Key in the Admin page first.');
+            setValidationError('API key missing. Go to Admin (/admin) to configure your OpenRouter key.');
             return;
         }
         if (!file) {
-            setError('Please upload an image to search.');
+            setValidationError('Please upload a furniture image first.');
             return;
         }
+        setValidationError(null);
+        search(file, query || undefined);
+    };
 
-        setLoading(true);
-        setError(null);
-
-        try {
-            const response = await searchByImage(file, openrouterApiKey, query || undefined);
-            setSearchQuery(query);
-            setSearchResult(response);
-            navigate('/results');
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Search failed');
-        } finally {
-            setLoading(false);
-        }
-    }, [file, query, openrouterApiKey, navigate, setSearchQuery, setSearchResult]);
+    const displayError = validationError ?? error;
 
     return (
         <div className={s.page}>
@@ -47,7 +35,7 @@ export function HomePage() {
 
                 <div className={s.section}>
                     <label className={s.fieldLabel}>Furniture Image</label>
-                    <ImageUpload onFileSelected={setFile} disabled={loading} />
+                    <ImageUpload onFileSelected={setFile} disabled={isSearching} />
                 </div>
 
                 <div className={s.section}>
@@ -57,19 +45,35 @@ export function HomePage() {
                         className={s.textInput}
                         placeholder='e.g. "under $500", "in white oak"'
                         value={query}
-                        onChange={(e) => setLocalQuery(e.target.value)}
+                        onChange={(e) => setQuery(e.target.value)}
+                        disabled={isSearching}
                     />
                 </div>
 
                 <button
                     className={s.searchBtn}
                     onClick={handleSearch}
-                    disabled={!file || loading}
+                    disabled={!file || isSearching}
                 >
-                    {loading ? 'Searching Catalog...' : '🔍 Search'}
+                    {isSearching ? (
+                        <>
+                            <span className={s.spinner} />
+                            Analyzing & Searching...
+                        </>
+                    ) : (
+                        '🔍 Search'
+                    )}
                 </button>
 
-                {error && <div className={s.errorBanner}>{error}</div>}
+                {displayError && (
+                    <div className={s.errorBanner}>
+                        <span className={s.errorIcon}>⚠️</span>
+                        <div>
+                            <strong>Something went wrong</strong>
+                            <p className={s.errorMessage}>{displayError}</p>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

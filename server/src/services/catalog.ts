@@ -1,9 +1,18 @@
 import { type Collection, type Db, MongoClient, type WithId, type Document } from 'mongodb';
 import type { Product } from '../types';
+import { invalidatePromptCache } from './ai';
 
 let client: MongoClient;
 let db: Db;
 let products: Collection;
+
+let cachedCategories: string[] = [];
+let cachedTypes: string[] = [];
+
+const PRODUCT_FIELDS = {
+    _id: 1, title: 1, description: 1, category: 1, type: 1,
+    price: 1, width: 1, height: 1, depth: 1,
+} as const;
 
 export async function connectDB(): Promise<void> {
     const mongoUri = process.env.MONGO_URI;
@@ -15,23 +24,13 @@ export async function connectDB(): Promise<void> {
     await client.connect();
     db = client.db('catalog');
     products = db.collection('products');
-    // estimatedDocumentCount uses collection metadata — no collection scan
     console.log(`Connected to MongoDB — ~${await products.estimatedDocumentCount()} products`);
 
-    // Pre-load catalog metadata for AI prompt construction
-    await refreshCatalogMeta();
-}
-
-// ── Cached catalog metadata (loaded once at startup) ──
-
-let cachedCategories: string[] = [];
-let cachedTypes: string[] = [];
-
-async function refreshCatalogMeta(): Promise<void> {
-    // distinct() uses the compound index {category, type, price} via DISTINCT_SCAN — not a full collection scan
     cachedCategories = (await products.distinct('category')).sort();
     cachedTypes = (await products.distinct('type')).sort();
     console.log(`Catalog meta: ${cachedCategories.length} categories, ${cachedTypes.length} types`);
+
+    invalidatePromptCache();
 }
 
 export function getValidCategories(): string[] {
@@ -51,18 +50,15 @@ interface CatalogResult {
     textScore: number;
 }
 
-/**
- * Text search using the existing $text index (title weight=2, description weight=1)
- */
-export async function textSearch(terms: string[], limit: number): Promise<CatalogResult[]> {
+export async function textSearch(terms: string[], limit: number, maxPrice?: number): Promise<CatalogResult[]> {
     const query = terms.join(' ');
     if (!query.trim()) return [];
 
+    const filter: Record<string, unknown> = { $text: { $search: query } };
+    if (maxPrice) filter.price = { $lte: maxPrice };
+
     const docs = await products
-        .find(
-            { $text: { $search: query } },
-            { projection: { score: { $meta: 'textScore' } } },
-        )
+        .find(filter, { projection: { ...PRODUCT_FIELDS, score: { $meta: 'textScore' } } })
         .sort({ score: { $meta: 'textScore' } })
         .limit(limit)
         .toArray();
@@ -70,35 +66,34 @@ export async function textSearch(terms: string[], limit: number): Promise<Catalo
     return docs.map(docToResult);
 }
 
-/**
- * Category + Type exact match using the compound index
- */
 export async function categoryTypeSearch(
     category: string,
     type: string,
     limit: number,
+    maxPrice?: number,
 ): Promise<CatalogResult[]> {
+    const filter: Record<string, unknown> = { category, type };
+    if (maxPrice) filter.price = { $lte: maxPrice };
+
     const docs = await products
-        .find({ category, type })
+        .find(filter, { projection: PRODUCT_FIELDS })
         .limit(limit)
         .toArray();
 
     return docs.map((d) => ({ product: docToProduct(d), textScore: 0 }));
 }
 
-/**
- * Broader category-only search (fallback when type match is too narrow)
- */
-export async function categorySearch(category: string, limit: number): Promise<CatalogResult[]> {
+export async function categorySearch(category: string, limit: number, maxPrice?: number): Promise<CatalogResult[]> {
+    const filter: Record<string, unknown> = { category };
+    if (maxPrice) filter.price = { $lte: maxPrice };
+
     const docs = await products
-        .find({ category })
+        .find(filter, { projection: PRODUCT_FIELDS })
         .limit(limit)
         .toArray();
 
     return docs.map((d) => ({ product: docToProduct(d), textScore: 0 }));
 }
-
-// ── Helpers ──
 
 function docToProduct(doc: WithId<Document>): Product {
     return {

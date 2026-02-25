@@ -1,15 +1,15 @@
 import type { RankingConfig } from './types';
 
-// In-memory config — admin-tunable at runtime, never persisted to disk
 const config: RankingConfig = {
     weights: {
-        text: 0.25,      // Semantic keyword relevance from MongoDB $text index — useful but noisy
-        category: 0.35,   // Exact category match (e.g. "Sofas") — most reliable structural signal
-        type: 0.25,       // Exact type match (e.g. "Sectional Sofa") — important for precision
-        style: 0.15,      // Heuristic: AI-detected style/material/color found in product text
+        text: 0.15,
+        category: 0.30,
+        type: 0.20,
+        style: 0.15,
+        query: 0.20,
     },
     maxResults: 20,
-    minScore: 0.1,        // Filters out low-confidence results; raise to 0.2+ for stricter matching
+    minScore: 0.1,
     model: 'google/gemini-2.5-flash-lite',
 };
 

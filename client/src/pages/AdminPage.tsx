@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { getConfig, updateConfig } from '../services/api';
+import { useEffect, useState } from 'react';
+import { useConfig } from '../hooks/useConfig';
 import type { RankingConfig } from '../types';
 import { useStore } from '../store';
 import { WeightSlider } from '../components/WeightSlider';
@@ -8,44 +8,34 @@ import * as s from './AdminPage.styles';
 
 export function AdminPage() {
     const { openrouterApiKey, setOpenrouterApiKey } = useStore();
+    const { config: remoteConfig, isLoading, loadError, save, isSaving, saveError, saved } = useConfig();
+
     const [config, setConfig] = useState<RankingConfig | null>(null);
-    const [saving, setSaving] = useState(false);
-    const [saved, setSaved] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        getConfig().then(setConfig).catch((e) => setError(e.message));
-    }, []);
+        if (remoteConfig && !config) setConfig(remoteConfig);
+    }, [remoteConfig, config]);
 
-    const handleSave = useCallback(async () => {
+    const setWeight = (key: keyof RankingConfig['weights'], value: number) => {
         if (!config) return;
-        setSaving(true);
-        setError(null);
-        try {
-            const updated = await updateConfig(config);
-            setConfig(updated);
-            setSaved(true);
-            setTimeout(() => setSaved(false), 2000);
-        } catch (e) {
-            setError(e instanceof Error ? e.message : 'Failed to save');
-        } finally {
-            setSaving(false);
-        }
-    }, [config]);
+        setConfig({ ...config, weights: { ...config.weights, [key]: value } });
+    };
 
-    if (!config) {
+    if (isLoading) {
         return (
             <div className={s.page}>
-                <div className={s.loading}>
-                    {error ? <p className={s.errorText}>{error}</p> : <p>Loading config...</p>}
-                </div>
+                <div className={s.loading}><p>Loading config...</p></div>
             </div>
         );
     }
 
-    const setWeight = (key: keyof RankingConfig['weights'], value: number) => {
-        setConfig({ ...config, weights: { ...config.weights, [key]: value } });
-    };
+    if (loadError || !config) {
+        return (
+            <div className={s.page}>
+                <div className={s.loading}><p className={s.errorText}>{loadError ?? 'Failed to load config'}</p></div>
+            </div>
+        );
+    }
 
     return (
         <div className={s.page}>
@@ -87,6 +77,12 @@ export function AdminPage() {
                         desc="Heuristic: how many AI-detected attributes (style, material, color) appear in the product text"
                         value={config.weights.style}
                         onChange={(v) => setWeight('style', v)}
+                    />
+                    <WeightSlider
+                        label="Query Match"
+                        desc="Direct match of user's text query against product attributes — ensures user preferences are respected"
+                        value={config.weights.query}
+                        onChange={(v) => setWeight('query', v)}
                     />
                 </section>
 
@@ -135,10 +131,10 @@ export function AdminPage() {
                 </section>
 
                 <div className={s.actions}>
-                    <button className={s.saveBtn} onClick={handleSave} disabled={saving}>
-                        {saving ? 'Saving...' : saved ? '✓ Saved' : 'Save Configuration'}
+                    <button className={s.saveBtn} onClick={() => save(config)} disabled={isSaving}>
+                        {isSaving ? 'Saving...' : saved ? '✓ Saved' : 'Save Configuration'}
                     </button>
-                    {error && <span className={s.errorText}>{error}</span>}
+                    {saveError && <span className={s.errorText}>{saveError}</span>}
                 </div>
             </div>
         </div>

@@ -1,4 +1,4 @@
-import { css } from '@emotion/css';
+import { css, keyframes } from '@emotion/css';
 import { theme } from '../theme';
 
 export const page = css`
@@ -68,6 +68,25 @@ export const textInput = css`
   &::placeholder {
     color: rgba(255, 255, 255, 0.25);
   }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
+
+const spin = keyframes`
+  to { transform: rotate(360deg); }
+`;
+
+export const spinner = css`
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: ${spin} 0.6s linear infinite;
+  flex-shrink: 0;
 `;
 
 export const searchBtn = css`
@@ -98,11 +117,36 @@ export const searchBtn = css`
 `;
 
 export const errorBanner = css`
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   background: ${theme.redBg};
   border: 1px solid ${theme.redBorder};
   color: ${theme.red};
-  padding: 12px 16px;
+  padding: 14px 16px;
   border-radius: ${theme.radius.lg};
   font-size: 0.85rem;
   line-height: 1.4;
+  animation: fadeIn 0.2s ease-out;
+
+  strong {
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+`;
+
+export const errorIcon = css`
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+`;
+
+export const errorMessage = css`
+  margin: 0;
+  opacity: 0.9;
 `;

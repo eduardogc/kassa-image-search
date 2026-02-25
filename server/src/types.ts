@@ -1,12 +1,10 @@
-// ── Shared types for the search pipeline ──
-
 export interface ImageAnalysis {
     category: string;
     type: string;
     searchTerms: string[];
     confidence: number;
-    /** Extensible attributes (style, material, color, and any future ones) */
     attributes: Record<string, string>;
+    maxPrice?: number;
 }
 
 export interface Product {
@@ -31,6 +29,7 @@ export interface ScoreSignals {
     categoryMatch: boolean;
     typeMatch: boolean;
     styleMatch: number;
+    queryMatch: number;
 }
 
 export interface SearchRequest {
@@ -51,11 +50,11 @@ export interface RankingConfig {
         category: number;
         type: number;
         style: number;
+        query: number;
     };
     maxResults: number;
     minScore: number;
     model: string;
 }
 
-/** Default attribute keys to extract from the AI vision model */
 export const DEFAULT_ATTRIBUTE_KEYS = ['style', 'material', 'color'] as const;

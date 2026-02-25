@@ -1,11 +1,10 @@
-// Shared types matching server types
-
 export interface ImageAnalysis {
     category: string;
     type: string;
     searchTerms: string[];
     confidence: number;
     attributes: Record<string, string>;
+    maxPrice?: number;
 }
 
 export interface ScoreSignals {
@@ -13,6 +12,7 @@ export interface ScoreSignals {
     categoryMatch: boolean;
     typeMatch: boolean;
     styleMatch: number;
+    queryMatch: number;
 }
 
 export interface ScoredProduct {
@@ -42,6 +42,7 @@ export interface RankingConfig {
         category: number;
         type: number;
         style: number;
+        query: number;
     };
     maxResults: number;
     minScore: number;

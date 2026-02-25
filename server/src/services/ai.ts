@@ -1,38 +1,59 @@
+import { createHash } from 'node:crypto';
 import OpenAI from 'openai';
 import type { ImageAnalysis } from '../types';
 import { DEFAULT_ATTRIBUTE_KEYS } from '../types';
 import { getConfig } from '../config';
 import { getValidCategories, getValidTypes } from './catalog';
 
-/**
- * Build the system prompt dynamically using categories/types from the catalog
- * and the configurable attribute keys.
- */
-function buildSystemPrompt(): string {
+let cachedClient: OpenAI | null = null;
+let cachedClientApiKey = '';
+
+function getClient(apiKey: string): OpenAI {
+    if (!cachedClient || cachedClientApiKey !== apiKey) {
+        cachedClient = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey });
+        cachedClientApiKey = apiKey;
+    }
+    return cachedClient;
+}
+
+let cachedSystemPrompt: string | null = null;
+
+export function invalidatePromptCache(): void {
+    cachedSystemPrompt = null;
+}
+
+function getSystemPrompt(): string {
+    if (cachedSystemPrompt) return cachedSystemPrompt;
+
     const categories = getValidCategories();
     const types = getValidTypes();
     const attrKeys = DEFAULT_ATTRIBUTE_KEYS;
 
-    return `You are a furniture identification expert. Analyze the provided image and extract structured attributes about the furniture item shown.
+    cachedSystemPrompt = `You are a furniture identification expert. Respond with valid JSON only — no markdown, no explanation.
 
-You MUST respond with valid JSON only — no markdown, no explanation.
+Categories (use EXACTLY one): ${categories.join(', ')}
+Types (use EXACTLY one): ${types.join(', ')}
 
-Use EXACTLY one of these categories:
-${categories.join(', ')}
+User Query Override: if the user explicitly mentions an attribute (color, material, style, price), use their value — not the image. For any attribute the user did NOT mention, derive it from the image as normal.
+Price constraint (e.g. "under $500") → extract as "maxPrice" number.
 
-Use EXACTLY one of these types:
-${types.join(', ')}
+JSON schema: {"category":string,"type":string,${attrKeys.map((k) => `"${k}":string`).join(',')},"searchTerms":string[],"confidence":number,"maxPrice":number|null}`;
 
-If the image does not show a recognizable furniture item, set confidence to 0 and use your best guess.
+    return cachedSystemPrompt;
+}
 
-Response schema:
-{
-  "category": string,     // one of the valid categories above
-  "type": string,         // one of the valid types above
-${attrKeys.map((k) => `  "${k}": string,`).join('\n')}
-  "searchTerms": string[],// 2-4 descriptive search phrases for finding similar items
-  "confidence": number    // 0-1, how confident you are this is a furniture item
-}`;
+const analysisCache = new Map<string, ImageAnalysis>();
+const CACHE_MAX_SIZE = 128;
+
+function cacheKey(imageBase64: string, query: string | undefined): string {
+    return createHash('sha1').update(imageBase64).update(query ?? '').digest('hex');
+}
+
+function storeInCache(key: string, value: ImageAnalysis): void {
+    if (analysisCache.size >= CACHE_MAX_SIZE) {
+        analysisCache.delete(analysisCache.keys().next().value!);
+    }
+    analysisCache.set(key, value);
 }
 
 export async function analyzeImage(
@@ -41,53 +62,45 @@ export async function analyzeImage(
     apiKey: string,
     userQuery?: string,
 ): Promise<ImageAnalysis> {
-    const config = getConfig();
+    const key = cacheKey(imageBase64, userQuery);
+    const cached = analysisCache.get(key);
+    if (cached) return cached;
 
-    const client = new OpenAI({
-        baseURL: 'https://openrouter.ai/api/v1',
-        apiKey,
-    });
+    const config = getConfig();
+    const client = getClient(apiKey);
 
     const userMessage = userQuery
-        ? `Analyze this furniture image. The user also specified: "${userQuery}". Factor this into your analysis — it may indicate preferences for style, color, material, price range, or specific features.`
-        : 'Analyze this furniture image and extract its attributes.';
+        ? `Analyze this furniture image. The user also specified: "${userQuery}". For any attribute the user explicitly mentioned (color, material, style, price), use their value — not the image. For everything else, use what you see in the image.`
+        : 'Analyze this furniture image.';
 
     const response = await client.chat.completions.create({
         model: config.model,
         messages: [
-            { role: 'system', content: buildSystemPrompt() },
+            { role: 'system', content: getSystemPrompt() },
             {
                 role: 'user',
                 content: [
                     { type: 'text', text: userMessage },
-                    {
-                        type: 'image_url',
-                        image_url: { url: `data:${mimeType};base64,${imageBase64}` },
-                    },
+                    { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
                 ],
             },
         ],
         temperature: 0.1,
-        max_tokens: 500,
+        max_tokens: 200,
     });
 
     const raw = response.choices[0]?.message?.content?.trim() ?? '';
-
-    // Strip markdown fences if present
     const jsonStr = raw.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
 
     try {
         const parsed = JSON.parse(jsonStr);
 
-        // Extract core fields + collect remaining keys into `attributes`
         const categories = getValidCategories();
         const types = getValidTypes();
 
         const attributes: Record<string, string> = {};
         for (const key of DEFAULT_ATTRIBUTE_KEYS) {
-            if (parsed[key]) {
-                attributes[key] = String(parsed[key]);
-            }
+            if (parsed[key]) attributes[key] = String(parsed[key]);
         }
 
         const result: ImageAnalysis = {
@@ -98,14 +111,14 @@ export async function analyzeImage(
             attributes,
         };
 
-        // Validate category/type against actual catalog values
-        if (!categories.includes(result.category)) {
-            result.confidence = Math.min(result.confidence, 0.5);
-        }
-        if (!types.includes(result.type)) {
-            result.confidence = Math.min(result.confidence, 0.5);
+        if (parsed.maxPrice && typeof parsed.maxPrice === 'number' && parsed.maxPrice > 0) {
+            result.maxPrice = parsed.maxPrice;
         }
 
+        if (!categories.includes(result.category)) result.confidence = Math.min(result.confidence, 0.5);
+        if (!types.includes(result.type)) result.confidence = Math.min(result.confidence, 0.5);
+
+        storeInCache(key, result);
         return result;
     } catch {
         throw new Error(`Failed to parse AI response: ${raw.slice(0, 200)}`);

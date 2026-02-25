@@ -4,7 +4,34 @@ All notable changes to the Kassa Image Search project are documented here. Each 
 
 ---
 
+## [1.4.1] — 2026-02-25 — AI Prompt Fix
+
+- **Selective attribute override** — the user query now overrides only the specific attributes the user mentioned. Previously, the prompt declared "Image = SHAPE only", which caused the AI to discard all image-derived attributes (color, material, style) even when the user said nothing about them.
+  - *Before:* user types "white" → AI ignores image color, material, style entirely
+  - *After:* user types "white" → color = "white" (override), material/style = from image (not mentioned)
+
+## [1.4.0] — 2026-02-24 — Server Performance
+
+
+### AI (`ai.ts`)
+- **Shared OpenAI client** — reused across requests, recreated only when the API key changes. Eliminates TCP handshake overhead on every search.
+- **Cached system prompt** — built once from catalog metadata at startup, never rebuilt per-request. The prompt is ~600 tokens of category/type lists.
+- **Analysis cache** — SHA-1 keyed LRU (128 entries). Identical image + query combinations return instantly with zero API calls.
+- **`max_tokens` 500 → 200** — JSON response is ≤150 tokens; ~40% reduction in inference billing per request.
+- **Shorter user message** — ~30 fewer input tokens per query.
+
+### DB (`catalog.ts`)
+- **Field projection on all 3 queries** — `PRODUCT_FIELDS` projection limits MongoDB transfer to the 9 fields actually used. `categoryTypeSearch` and `categorySearch` previously fetched full documents.
+- **Prompt cache invalidation on connect** — `invalidatePromptCache()` called after `connectDB()` so the AI prompt always reflects live catalog data.
+
+### Ranker + Route (`ranker.ts`, `search.ts`)
+- **`totalCandidates` from deduplication Map** — `rankResults` returns `{ results, totalCandidates }` where count comes from `productMap.size`. The route no longer allocates a second `Set` over all 3 result arrays.
+- **Config read before AI call** — `getConfig()` called once at pipeline start, not mid-flow.
+
+---
+
 ## [1.2.0] — 2026-02-24
+
 
 ### Scalability, Code Quality & Search Tuning
 
